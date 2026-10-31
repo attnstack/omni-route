@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>omni-route · 省钱仪表盘</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#e6edf3; --dim:#8b949e; --green:#3fb950; --blue:#58a6ff; --orange:#d29922; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px; background:var(--bg); color:var(--text); font:14px/1.6 -apple-system,"Segoe UI",Roboto,"Noto Sans SC",sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin-bottom:20px; font-size:12px; }
+  .hero { background:linear-gradient(135deg,#12261a,#161b22); border:1px solid var(--border); border-radius:12px; padding:28px 32px; margin-bottom:16px; }
+  .hero .label { color:var(--dim); font-size:13px; }
+  .hero .amount { font-size:52px; font-weight:700; color:var(--green); letter-spacing:-1px; }
+  .hero .amount small { font-size:22px; color:var(--green); opacity:.8; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; }
+  .card .k { color:var(--dim); font-size:12px; }
+  .card .v { font-size:22px; font-weight:600; margin-top:2px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media (max-width:900px){ .grid { grid-template-columns:1fr; } }
+  .panel { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:16px 18px; }
+  .panel h2 { font-size:13px; color:var(--dim); margin:0 0 12px; font-weight:500; text-transform:uppercase; letter-spacing:.5px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--dim); font-weight:500; padding:4px 8px; border-bottom:1px solid var(--border); }
+  td { padding:5px 8px; border-bottom:1px solid #21262d; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .bar { height:14px; background:var(--blue); border-radius:3px; min-width:2px; display:inline-block; vertical-align:middle; }
+  .pill { padding:1px 8px; border-radius:10px; font-size:11px; }
+  .pill.ok { background:#12261a; color:var(--green); }
+  .pill.err { background:#2d1216; color:#f85149; }
+  .pill.up { background:#2a2108; color:var(--orange); }
+  code { background:#21262d; padding:1px 5px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+  <h1>omni-route 省钱仪表盘</h1>
+  <div class="sub">相对"永远用基线模型"的累计节省 · 每 2 秒自动刷新 · <span id="mode"></span></div>
+
+  <div class="hero">
+    <div class="label">累计节省（USD）</div>
+    <div class="amount"><small>$</small><span id="savings">0.000000</span></div>
+  </div>
+
+  <div class="cards">
+    <div class="card"><div class="k">总请求数</div><div class="v" id="requests">0</div></div>
+    <div class="card"><div class="k">实际花费（USD）</div><div class="v" id="cost">$0.00</div></div>
+    <div class="card"><div class="k">节省比例</div><div class="v" id="rate">0%</div></div>
+    <div class="card"><div class="k">级联升级率</div><div class="v" id="upgrade">0%</div></div>
+    <div class="card"><div class="k">平均延迟</div><div class="v" id="latency">0 ms</div></div>
+    <div class="card"><div class="k">错误数</div><div class="v" id="errors">0</div></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>模型调用占比 / 成本</h2>
+      <table id="byModel"><thead><tr><th>模型</th><th class="num">请求</th><th class="num">成本</th><th class="num">节省</th><th class="num">占比</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>任务类型成本归因</h2>
+      <table id="byTask"><thead><tr><th>任务</th><th class="num">请求</th><th class="num">成本</th><th class="num">节省</th><th class="num">升级率</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="panel">
+      <h2>升级率趋势（近 60 分钟）</h2>
+      <svg id="trend" width="100%" height="120" viewBox="0 0 600 120" preserveAspectRatio="none"></svg>
+    </div>
+    <div class="panel">
+      <h2>路由质量表（EMA）与 λ</h2>
+      <table id="quality"><thead><tr><th>任务</th><th>模型</th><th class="num">质量分</th><th class="num">λ</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:12px">
+    <h2>最近请求</h2>
+    <table id="recent"><thead><tr><th>时间</th><th>task</th><th>tier</th><th>model</th><th>upgraded</th><th class="num">cost</th><th class="num">saving</th><th class="num">latency</th><th>status</th></tr></thead><tbody></tbody></table>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtUSD = v => (v ?? 0).toFixed(6);
+const esc = s => String(s ?? "").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+
+async function refresh() {
+  try {
+    const [statsRes, reqRes] = await Promise.all([fetch("/api/stats"), fetch("/api/requests?limit=15")]);
+    const st = await statsRes.json();
+    const rq = await reqRes.json();
+    const t = st.store.totals;
+    $("savings").textContent = fmtUSD(t.savings_usd);
+    $("requests").textContent = t.requests;
+    $("cost").textContent = "$" + t.cost_usd.toFixed(4);
+    $("rate").textContent = (t.cost_usd + t.savings_usd) > 0
+      ? Math.round(t.savings_usd / (t.cost_usd + t.savings_usd) * 100) + "%" : "0%";
+    $("upgrade").textContent = Math.round((t.upgrade_rate || 0) * 100) + "%";
+    $("latency").textContent = Math.round(t.avg_latency_ms) + " ms";
+    $("errors").textContent = t.errors;
+    $("mode").textContent = "routing.mode = " + esc(st.mode);
+
+    const maxReq = Math.max(1, ...st.store.by_model.map(g => g.requests));
+    $("byModel").tBodies[0].innerHTML = (st.store.by_model || []).map(g =>
+      `<tr><td>${esc(g.key)}</td><td class="num">${g.requests}</td><td class="num">${g.cost_usd.toFixed(4)}</td><td class="num">${g.savings_usd.toFixed(4)}</td>` +
+      `<td class="num"><span class="bar" style="width:${Math.round(g.requests / maxReq * 100)}px"></span></td></tr>`).join("");
+
+    $("byTask").tBodies[0].innerHTML = (st.store.by_task || []).map(g =>
+      `<tr><td>${esc(g.key)}</td><td class="num">${g.requests}</td><td class="num">${g.cost_usd.toFixed(4)}</td><td class="num">${g.savings_usd.toFixed(4)}</td><td class="num">${Math.round((g.upgrade_rate||0)*100)}%</td></tr>`).join("");
+
+    const pts = (st.store.series || []).slice().reverse();
+    const w = 600, h = 120, n = Math.max(1, pts.length - 1);
+    const maxU = Math.max(1, ...pts.map(p => p.upgrades));
+    const path = pts.map((p, i) => `${i ? "L" : "M"}${(i / n * w).toFixed(1)},${(h - 6 - p.upgrades / maxU * (h - 16)).toFixed(1)}`).join(" ");
+    $("trend").innerHTML = `<line x1="0" y1="${h-6}" x2="${w}" y2="${h-6}" stroke="#30363d"/>` +
+      `<path d="${path}" stroke="#d29922" fill="none" stroke-width="2"/>` +
+      `<text x="8" y="16" fill="#8b949e" font-size="11">max ${maxU} upgrades/min</text>`;
+
+    const q = st.quality || {}, lam = st.lambda || {};
+    let qRows = "";
+    for (const task of Object.keys(q).sort()) {
+      for (const model of Object.keys(q[task]).sort()) {
+        qRows += `<tr><td>${esc(task)}</td><td>${esc(model)}</td><td class="num">${q[task][model].toFixed(3)}</td><td class="num">${(lam[task] ?? 0).toFixed(1)}</td></tr>`;
+      }
+    }
+    $("quality").tBodies[0].innerHTML = qRows || `<tr><td colspan="4" style="color:var(--dim)">暂无数据</td></tr>`;
+
+    $("recent").tBodies[0].innerHTML = (rq.requests || []).map(r => {
+      const pillCls = r.status === "ok" ? "ok" : (r.status === "client_cancel" ? "up" : "err");
+      const up = r.upgraded ? `<span class="pill up">升级</span>` : "";
+      return `<tr><td>${new Date(r.ts).toLocaleTimeString()}</td><td>${esc(r.task)}</td><td>${esc(r.tier)}</td>` +
+        `<td><code>${esc(r.model)}</code></td><td>${up}</td><td class="num">${r.cost_usd.toFixed(6)}</td>` +
+        `<td class="num">${r.savings_usd.toFixed(6)}</td><td class="num">${r.latency_ms} ms</td>` +
+        `<td><span class="pill ${pillCls}">${esc(r.status)}</span></td></tr>`;
+    }).join("");
+  } catch (e) { /* 轮询失败静默重试，不打断页面 */ }
+}
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

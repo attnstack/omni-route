@@ -1,0 +1,11 @@
+bin/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/state.json
+coverage.*
+dist/
+.DS_Store
+.gocache/
+.gotmp/

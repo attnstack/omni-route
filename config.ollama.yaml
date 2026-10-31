@@ -1,0 +1,102 @@
+# omni-route 本地真实模型配置：Ollama 的 qwen2.5:3b → qwen2.5:7b 真实级联链。
+# 零 API 费用；token 单价用"影子价格"（近似 qwen-turbo / qwen-plus 云端公开单价量级），
+# 使成本对比有意义——本地推理的真实边际成本是电费，如果你想按其他口径折算，改这两个数字即可。
+listen: ":8081"
+api_keys: []
+seed: 42
+
+log:
+  level: info
+  format: text
+
+store:
+  path: data/ollama.db
+  flush_interval_ms: 200
+  batch_size: 64
+
+providers:
+  ollama:
+    kind: openai
+    base_url: http://localhost:11434/v1
+    key_env: ""          # 本地服务无鉴权
+    rpm: 300
+
+models:
+  qwen2.5:3b:
+    provider: ollama
+    price_in: 0.05       # 影子价格 USD / 1M tokens
+    price_out: 0.20
+    caps: { streaming: true, tools: false, json_mode: true, max_context_tokens: 32768 }
+  qwen2.5:7b:
+    provider: ollama
+    price_in: 0.40       # 影子价格 USD / 1M tokens
+    price_out: 1.60
+    caps: { streaming: true, tools: true, json_mode: true, max_context_tokens: 32768 }
+
+routing:
+  mode: cascade
+  default_model: qwen2.5:7b
+  task_defaults: {}
+  budget_per_task:
+    code: 1.00
+    reasoning: 1.00
+    summarization: 1.00
+    translation: 1.00
+    extraction: 1.00
+    chat: 1.00
+  baseline:              # 省钱参照系 = 永远用 7b
+    code: qwen2.5:7b
+    reasoning: qwen2.5:7b
+    summarization: qwen2.5:7b
+    translation: qwen2.5:7b
+    extraction: qwen2.5:7b
+    chat: qwen2.5:7b
+  compliance_groups: {}
+  latency_budget_ms: 120000
+  spend_window: 1000
+  lambda: { init: 50, min: 1, max: 5000, eta: 0.05 }
+
+cascades:
+  code: [qwen2.5:3b, qwen2.5:7b]
+  reasoning: [qwen2.5:3b, qwen2.5:7b]
+  summarization: [qwen2.5:3b, qwen2.5:7b]
+  translation: [qwen2.5:3b, qwen2.5:7b]
+  extraction: [qwen2.5:3b, qwen2.5:7b]
+  chat: [qwen2.5:3b, qwen2.5:7b]
+
+cascade:
+  max_upgrades: 2
+  max_latency_ms: 120000
+  target_upgrade_rate: 0.30
+  calibration_step: 0.05
+  # 默认 50 按线上流量设计；本地/小流量场景凑不满窗口会导致校准不生效，
+  # 按实际流量调小。
+  calibration_window: 8
+  confidence:
+    threshold: 0.60
+    use_format: true
+    use_heuristic: true
+    llm_judge:
+      # 判官用 7b：试过 3b，打分偏苛刻且区分度不够。judge 只输出 16 token
+      # 的分数，成本约为完整回答的 1/4。
+      enabled: true
+      model: qwen2.5:7b
+      sample_rate: 1.0
+      timeout_ms: 30000
+    self_consistency:
+      enabled: false
+      k: 3
+
+reliability:
+  retries: 1
+  backoff_base_ms: 500
+  breaker:
+    window_sec: 300
+    min_samples: 20
+    error_rate: 0.20
+    open_sec: 30
+
+timeouts:
+  connect_ms: 5000
+  first_byte_ms: 120000   # 本地模型冷加载可能超过 1 分钟
+  total_ms: 300000

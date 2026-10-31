@@ -1,0 +1,113 @@
+# omni-route 演示配置：全部使用内置 mock provider，零 API key 即可端到端跑通。
+# 用途：本地演示 / benchmark / CI。接真实模型请参考 config.example.yaml。
+listen: ":8080"
+api_keys: []            # 演示模式不鉴权；生产环境必须配置
+seed: 42                # 固定随机种子：路由（Bandit/λ）与 benchmark 可复现
+
+log:
+  level: info
+  format: text
+
+store:
+  path: data/demo.db
+  flush_interval_ms: 200
+  batch_size: 64
+
+providers:
+  mock:
+    kind: mock
+    base_url: ""
+    mock:
+      latency_ms: 120
+      jitter_ms: 60
+      stream_chunk_delay_ms: 15
+      bad_json_rate: 0.25   # fast 档 25% 概率输出非法 JSON（触发级联升级）
+      short_rate: 0.15      # fast 档 15% 概率输出过短回答（触发启发式判别）
+      fail_rate: 0.0
+      fail_first_n: 0
+
+models:
+  mock-fast:
+    provider: mock
+    price_in: 0.10          # USD / 1M tokens
+    price_out: 0.40
+    caps: { streaming: true, tools: false, json_mode: true, max_context_tokens: 8192 }
+    mock_tier: fast
+  mock-mid:
+    provider: mock
+    price_in: 0.60
+    price_out: 2.40
+    caps: { streaming: true, tools: true, json_mode: true, max_context_tokens: 32768 }
+    mock_tier: mid
+  mock-premium:
+    provider: mock
+    price_in: 2.50
+    price_out: 10.00
+    caps: { streaming: true, tools: true, json_mode: true, max_context_tokens: 128000 }
+    mock_tier: premium
+
+routing:
+  mode: cascade             # direct | lagrangian | cascade
+  default_model: mock-mid
+  task_defaults: {}
+  # 每 1k 请求的预算（USD），按任务类型
+  budget_per_task:
+    code: 2.00
+    reasoning: 2.50
+    summarization: 1.00
+    translation: 1.00
+    extraction: 1.00
+    chat: 0.80
+  # 省钱基线：该任务"永远用最强模型"时的花费参照
+  baseline:
+    code: mock-premium
+    reasoning: mock-premium
+    summarization: mock-premium
+    translation: mock-premium
+    extraction: mock-premium
+    chat: mock-premium
+  compliance_groups: {}
+  latency_budget_ms: 30000
+  spend_window: 1000
+  lambda: { init: 50, min: 1, max: 5000, eta: 0.05 }
+
+cascades:
+  code: [mock-fast, mock-mid, mock-premium]
+  reasoning: [mock-mid, mock-premium]
+  summarization: [mock-fast, mock-mid]
+  translation: [mock-fast, mock-mid]
+  extraction: [mock-fast, mock-mid]
+  chat: [mock-fast, mock-mid]
+
+cascade:
+  max_upgrades: 2
+  max_latency_ms: 15000
+  target_upgrade_rate: 0.30
+  calibration_step: 0.05
+  calibration_window: 50
+  confidence:
+    threshold: 0.60
+    use_format: true
+    use_heuristic: true
+    llm_judge:
+      enabled: false
+      model: ""
+      sample_rate: 0.05
+      timeout_ms: 8000
+    self_consistency:
+      enabled: false
+      k: 3
+
+reliability:
+  retries: 2
+  backoff_base_ms: 200
+  breaker:
+    window_sec: 300
+    min_samples: 20
+    error_rate: 0.20
+    open_sec: 30
+
+timeouts:
+  connect_ms: 5000
+  first_byte_ms: 60000
+  total_ms: 300000

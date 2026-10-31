@@ -1,0 +1,12 @@
+{
+  "id": "msg_fixture_001",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet",
+  "content": [
+    { "type": "text", "text": "Let me check the weather. " },
+    { "type": "tool_use", "id": "toolu_01", "name": "get_weather", "input": { "city": "Paris" } }
+  ],
+  "stop_reason": "tool_use",
+  "usage": { "input_tokens": 21, "output_tokens": 33 }
+}

@@ -1,0 +1,138 @@
+# omni-route 生产示例配置：OpenAI + DeepSeek + Anthropic + 本地 Ollama。
+# key 一律走环境变量（key_env），禁止写进配置文件。
+listen: ":8080"
+# 网关自身鉴权：客户端请求需带 Authorization: Bearer <以下之一>
+api_keys: ["sk-or-local-dev-key"]
+admin_key_env: OMNI_ADMIN_KEY   # /admin/reload 需要该环境变量的值
+seed: 0                         # 0 = 每次启动随机；>0 则路由决策可复现
+
+log:
+  level: info
+  format: json
+
+store:
+  path: data/omni.db
+  flush_interval_ms: 200
+  batch_size: 64
+
+providers:
+  openai:
+    kind: openai
+    base_url: https://api.openai.com/v1
+    key_env: OPENAI_API_KEY
+    rpm: 500
+  deepseek:
+    kind: openai
+    base_url: https://api.deepseek.com/v1
+    key_env: DEEPSEEK_API_KEY
+    rpm: 300
+  anthropic:
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    key_env: ANTHROPIC_API_KEY
+    rpm: 100
+    default_max_tokens: 8192
+  ollama:
+    kind: openai
+    base_url: http://localhost:11434/v1
+    key_env: ""          # 本地服务无鉴权
+    rpm: 600
+
+models:
+  gpt-4o:
+    provider: openai
+    price_in: 2.50
+    price_out: 10.00
+    caps: { streaming: true, tools: true, json_mode: true, max_context_tokens: 128000 }
+  gpt-4o-mini:
+    provider: openai
+    price_in: 0.15
+    price_out: 0.60
+    caps: { streaming: true, tools: true, json_mode: true, max_context_tokens: 128000 }
+  deepseek-chat:
+    provider: deepseek
+    price_in: 0.27
+    price_out: 1.10
+    caps: { streaming: true, tools: true, json_mode: true, max_context_tokens: 64000 }
+  deepseek-reasoner:
+    provider: deepseek
+    price_in: 0.55
+    price_out: 2.19
+    caps: { streaming: true, tools: false, json_mode: false, max_context_tokens: 64000 }
+  claude-sonnet:
+    provider: anthropic
+    price_in: 3.00
+    price_out: 15.00
+    caps: { streaming: true, tools: true, json_mode: false, max_context_tokens: 200000 }
+  qwen2.5:7b:
+    provider: ollama
+    price_in: 0            # 本地模型无边际成本
+    price_out: 0
+    caps: { streaming: true, tools: false, json_mode: true, max_context_tokens: 32768 }
+
+routing:
+  mode: cascade
+  default_model: gpt-4o-mini
+  task_defaults:
+    reasoning: deepseek-reasoner
+  budget_per_task:
+    code: 5.00
+    reasoning: 8.00
+    summarization: 1.50
+    translation: 1.50
+    extraction: 1.50
+    chat: 1.00
+  baseline:
+    code: claude-sonnet
+    reasoning: claude-sonnet
+    summarization: claude-sonnet
+    translation: claude-sonnet
+    extraction: claude-sonnet
+    chat: claude-sonnet
+  # 数据合规组：请求带 x-or-data-class: sensitive 时只允许发往组内 provider
+  compliance_groups:
+    sensitive: [ollama]
+  latency_budget_ms: 30000
+  spend_window: 1000
+  lambda: { init: 50, min: 1, max: 5000, eta: 0.05 }
+
+cascades:
+  code: [deepseek-chat, claude-sonnet]
+  reasoning: [deepseek-reasoner, claude-sonnet]
+  summarization: [gpt-4o-mini, deepseek-chat]
+  translation: [deepseek-chat, gpt-4o]
+  extraction: [gpt-4o-mini, deepseek-chat]
+  chat: [qwen2.5:7b, gpt-4o-mini, gpt-4o]
+
+cascade:
+  max_upgrades: 2
+  max_latency_ms: 15000
+  target_upgrade_rate: 0.30
+  calibration_step: 0.05
+  calibration_window: 50
+  confidence:
+    threshold: 0.60
+    use_format: true
+    use_heuristic: true
+    llm_judge:
+      enabled: true
+      model: gpt-4o-mini
+      sample_rate: 0.05
+      timeout_ms: 8000
+    self_consistency:
+      enabled: false
+      k: 3
+
+reliability:
+  retries: 2
+  backoff_base_ms: 200
+  breaker:
+    window_sec: 300
+    min_samples: 20
+    error_rate: 0.20
+    open_sec: 30
+
+timeouts:
+  connect_ms: 5000
+  first_byte_ms: 60000
+  total_ms: 300000
