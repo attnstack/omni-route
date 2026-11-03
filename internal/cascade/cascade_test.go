@@ -82,15 +82,28 @@ func TestHeuristicScore(t *testing.T) {
 
 // fakeCaller 是级联测试的可编程执行器。
 type fakeCaller struct {
-	resps map[string]*types.Response // model → 固定响应
-	errs  map[string]error           // model → 固定错误
-	calls []string
+	resps      map[string]*types.Response // model → 固定响应
+	errs       map[string]error           // model → 固定错误
+	seq        []string                   // model 内容序列（每次调用轮换，测自一致性投票用）
+	seqIdx     int
+	beforeCall func() // 每次调用前的钩子（测注入时钟用）
+	calls      []string
 }
+
+var errBoom = errors.New("boom")
 
 func (f *fakeCaller) Call(_ context.Context, model string, _ *types.Request) (*types.Response, error) {
 	f.calls = append(f.calls, model)
+	if f.beforeCall != nil {
+		f.beforeCall()
+	}
 	if err, ok := f.errs[model]; ok {
 		return nil, err
+	}
+	if f.seq != nil {
+		content := f.seq[f.seqIdx%len(f.seq)]
+		f.seqIdx++
+		return &types.Response{Model: model, Content: content, FinishReason: "stop"}, nil
 	}
 	if r, ok := f.resps[model]; ok {
 		cp := *r
