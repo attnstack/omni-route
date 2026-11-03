@@ -14,6 +14,7 @@
   <a href="https://github.com/attnstack/omni-route/actions"><img src="https://img.shields.io/github/actions/workflow/status/attnstack/omni-route/ci.yml?branch=main" alt="ci"></a>
   <a href="https://github.com/attnstack/omni-route/releases"><img src="https://img.shields.io/github/v/release/attnstack/omni-route" alt="release"></a>
   <img src="https://img.shields.io/badge/go-1.22%2B-00ADD8" alt="go">
+  <a href="https://github.com/cuihuan/awesome-ai-gateway"><img src="https://img.shields.io/badge/listed%20in-Awesome%20AI%20Gateway-58a6ff?logo=awesomelists&logoColor=white" alt="listed in awesome ai gateway"></a>
 </p>
 
 <p align="center">
