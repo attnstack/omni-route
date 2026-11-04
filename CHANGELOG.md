@@ -3,7 +3,7 @@
 All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning follows SemVer.
 
-## [Unreleased]
+## [v0.2.0] - 2026-11-05
 
 ### Added
 - Response cache for non-streaming requests: exact-match on a canonical hash of
