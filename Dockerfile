@@ -1,7 +1,7 @@
 # 多阶段构建：静态编译 + distroless 运行时。
 # 构建示例（版本注入）：
 #   docker build --build-arg VERSION=v0.1.0 -t ghcr.io/attnstack/omni-route:v0.1.0 .
-FROM golang:1.22-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src
 ARG VERSION=dev
 COPY go.mod go.sum ./

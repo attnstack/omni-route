@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
   <a href="https://github.com/attnstack/omni-route/actions"><img src="https://img.shields.io/github/actions/workflow/status/attnstack/omni-route/ci.yml?branch=main" alt="ci"></a>
   <a href="https://github.com/attnstack/omni-route/releases"><img src="https://img.shields.io/github/v/release/attnstack/omni-route" alt="release"></a>
-  <img src="https://img.shields.io/badge/go-1.22%2B-00ADD8" alt="go">
+  <img src="https://img.shields.io/badge/go-1.26%2B-00ADD8" alt="go">
   <a href="https://github.com/cuihuan/awesome-ai-gateway"><img src="https://img.shields.io/badge/listed%20in-Awesome%20AI%20Gateway-58a6ff?logo=awesomelists&logoColor=white" alt="listed in awesome ai gateway"></a>
 </p>
 
@@ -40,7 +40,7 @@
 No API keys needed — the built-in mock provider runs the whole loop end to end:
 
 ```bash
-# 1. Start the gateway (requires Go >= 1.22)
+# 1. Start the gateway (requires Go >= 1.26)
 go run ./cmd/omni-route -config config.demo.yaml
 
 # 2. In another terminal, send a request (watch the response headers)
@@ -222,7 +222,7 @@ Routing decision overhead (gateway's own latency; `go test -bench=. -benchmem ./
 ## 🚀 Verify from scratch
 
 ```bash
-# 0. Prereq: Go >= 1.22
+# 0. Prereq: Go >= 1.26
 go version
 
 # 1. Dependencies (only 2 direct deps: yaml.v3 + modernc.org/sqlite, pure Go, no CGO)

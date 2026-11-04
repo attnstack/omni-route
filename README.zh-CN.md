@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="license"></a>
   <a href="https://github.com/attnstack/omni-route/actions"><img src="https://img.shields.io/github/actions/workflow/status/attnstack/omni-route/ci.yml?branch=main" alt="ci"></a>
   <a href="https://github.com/attnstack/omni-route/releases"><img src="https://img.shields.io/github/v/release/attnstack/omni-route" alt="release"></a>
-  <img src="https://img.shields.io/badge/go-1.22%2B-00ADD8" alt="go">
+  <img src="https://img.shields.io/badge/go-1.26%2B-00ADD8" alt="go">
   <a href="https://github.com/cuihuan/awesome-ai-gateway"><img src="https://img.shields.io/badge/listed%20in-Awesome%20AI%20Gateway-58a6ff?logo=awesomelists&logoColor=white" alt="listed in awesome ai gateway"></a>
 </p>
 
@@ -40,7 +40,7 @@
 零 API key，内置 mock provider 端到端演示：
 
 ```bash
-# 1. 启动网关（需要 Go ≥ 1.22）
+# 1. 启动网关（需要 Go ≥ 1.26）
 go run ./cmd/omni-route -config config.demo.yaml
 
 # 2. 另开终端，发起请求（注意响应头）
@@ -224,7 +224,7 @@ cascade 卡在 cheap 和 premium 之间：质量比 cheap 高 4 个百分点，�
 ## 🚀 从零跑通（交付验证清单）
 
 ```bash
-# 0. 前置：Go ≥ 1.22（国内环境建议 export GOPROXY=https://goproxy.cn,direct）
+# 0. 前置：Go ≥ 1.26（国内环境建议 export GOPROXY=https://goproxy.cn,direct）
 go version
 
 # 1. 安装依赖（本仓库仅 2 个直接依赖：yaml.v3 + modernc.org/sqlite 纯 Go 无 CGO）
