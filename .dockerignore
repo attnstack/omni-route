@@ -1,0 +1,14 @@
+.git
+.github
+.gocache
+.gotmp
+bin
+data
+docs
+reports
+*.db
+*.db-wal
+*.db-shm
+*.state.json
+Dockerfile
+docker-compose.yml

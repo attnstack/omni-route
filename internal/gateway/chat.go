@@ -14,7 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/attnstack/omni-route/internal/cache"
 	"github.com/attnstack/omni-route/internal/cascade"
+	"github.com/attnstack/omni-route/internal/metrics"
 	"github.com/attnstack/omni-route/internal/router"
 	"github.com/attnstack/omni-route/internal/store"
 	"github.com/attnstack/omni-route/internal/tokens"
@@ -109,6 +111,23 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	req.RequestID = rid
 
+	// 响应缓存：非流式 + 配置开启 + 未被 bypass。命中时跳过路由与上游，
+	// 直接以缓存中的回答应答——这是"零成本"的极致形态。
+	if world.cfg.Cache.Enabled && !req.Stream && r.Header.Get("X-Or-Cache") != "bypass" &&
+		cacheEligible(world.cfg.Cache.Mode, req) {
+		// 租户盐：鉴权开启时不同 API key 的相同请求不共享缓存
+		tenant, _ := r.Context().Value(authKeyKey{}).(string)
+		ck := cache.Key(req.Raw, explicitModel(req.Model), tenantHash(tenant))
+		if e, ok := world.cache.Get(ck); ok {
+			metrics.Default.Inc("omni_route_cache_hits_total", nil, 1)
+			s.serveCacheHit(w, r, world, req, ck, e, start)
+			return
+		}
+		metrics.Default.Inc("omni_route_cache_misses_total", nil, 1)
+		// 键挂在请求结构上（无 json 标签，不会透传给上游），complete() 成功后回写
+		req.CacheKey = ck
+	}
+
 	hints := router.Hints{
 		TaskOverride: r.Header.Get("X-Or-Task"),
 		DataClass:    r.Header.Get("X-Or-Data-Class"),
@@ -182,6 +201,14 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, world *world, 
 	}
 
 	latency := time.Since(start)
+	// 缓存口径头：参与缓存判定的请求标 miss，被 bypass/不合规的标 bypass
+	if world.cfg.Cache.Enabled {
+		if req.CacheKey != "" {
+			w.Header().Set("x-or-cache", "miss")
+		} else {
+			w.Header().Set("x-or-cache", "bypass")
+		}
+	}
 	cost, usage := s.settleCost(world, finalModel, resp, req)
 	savings := s.savings(world, string(dec.Task), usage, cost)
 	reward := cascade.HeuristicScore(cascade.CheckReq{Messages: req.Messages, Response: resp}).Score
@@ -205,6 +232,7 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request, world *world, 
 	h.Set("Content-Type", "application/json")
 
 	s.logRow(world, req, dec, finalModel, usage, cost, savings, latency, false, upgraded, failoverFrom, "ok", "")
+	s.maybeCachePut(world, req, dec, finalModel, resp, usage, cost)
 	writeJSON(w, http.StatusOK, buildChatResponse(req, resp, finalModel, usage, rep))
 }
 
@@ -438,6 +466,26 @@ func (s *Server) logRow(world *world, req *types.Request, dec *router.Decision, 
 	if info, ok := world.reg.Model(model); ok {
 		providerName = info.Provider
 	}
+	// Prometheus 指标：请求/令牌/成本/节省/升级。缓存命中行不计上游消耗，
+	// 但节省（未再发生的成本）照常入账。
+	isCache := dec.Tier == "cache"
+	metrics.Default.Inc("omni_route_requests_total",
+		map[string]string{"task": string(dec.Task), "tier": dec.Tier, "model": model, "status": status}, 1)
+	if !isCache {
+		metrics.Default.Inc("omni_route_prompt_tokens_total",
+			map[string]string{"model": model}, int64(usage.PromptTokens))
+		metrics.Default.Inc("omni_route_completion_tokens_total",
+			map[string]string{"model": model}, int64(usage.CompletionTokens))
+	}
+	metrics.Default.Inc("omni_route_cost_micro_usd_total",
+		map[string]string{"model": model}, int64(cost*1e6))
+	metrics.Default.Inc("omni_route_savings_micro_usd_total",
+		map[string]string{"task": string(dec.Task)}, int64(savings*1e6))
+	if upgraded {
+		metrics.Default.Inc("omni_route_cascade_upgrades_total",
+			map[string]string{"task": string(dec.Task)}, 1)
+	}
+
 	s.store.Log(store.Row{
 		TS: time.Now().UnixMilli(), RequestID: req.RequestID,
 		Task: string(dec.Task), TaskConfidence: dec.TaskConfidence,

@@ -70,7 +70,7 @@ func setup(t *testing.T, mutate func(*config.Config)) (string, *http.Client) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	state := router.NewState(cfg)
-	w, err := BuildWorld(cfg, nil, state, logger)
+	w, err := BuildWorld(cfg, nil, state, nil, logger) // nil cache：测试不启用缓存
 	if err != nil {
 		t.Fatal(err)
 	}

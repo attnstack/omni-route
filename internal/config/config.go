@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +26,7 @@ type Config struct {
 	Routing     Routing             `yaml:"routing"`
 	Cascades    map[string][]string `yaml:"cascades"`
 	Cascade     Cascade             `yaml:"cascade"`
+	Cache       CacheCfg            `yaml:"cache"`
 	Reliability Reliability         `yaml:"reliability"`
 	Timeouts    Timeouts            `yaml:"timeouts"`
 	Store       Store               `yaml:"store"`
@@ -118,6 +120,15 @@ type LLMJudgeCfg struct {
 type SelfConsistencyCfg struct {
 	Enabled bool `yaml:"enabled"`
 	K       int  `yaml:"k"`
+}
+
+// CacheCfg 是响应缓存配置。精确匹配、仅非流式；zero_temp 模式只缓存
+// 显式 temperature=0 的请求（temperature 缺省时各 provider 语义不同，不缓存）。
+type CacheCfg struct {
+	Enabled    bool   `yaml:"enabled"`
+	Mode       string `yaml:"mode"` // zero_temp | always
+	TTLSeconds int    `yaml:"ttl_seconds"`
+	MaxEntries int    `yaml:"max_entries"`
 }
 
 type Reliability struct {
@@ -234,6 +245,15 @@ func (c *Config) ApplyDefaults() {
 	if c.Cascade.Confidence.SelfConsistency.K == 0 {
 		c.Cascade.Confidence.SelfConsistency.K = 3
 	}
+	if c.Cache.Mode == "" {
+		c.Cache.Mode = "zero_temp"
+	}
+	if c.Cache.TTLSeconds == 0 {
+		c.Cache.TTLSeconds = 3600
+	}
+	if c.Cache.MaxEntries == 0 {
+		c.Cache.MaxEntries = 4096
+	}
 }
 
 // Validate 聚合所有配置错误。启动时全量校验一次，换来运行期不用防御配置。
@@ -331,6 +351,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	switch c.Cache.Mode {
+	case "zero_temp", "always":
+	default:
+		add("cache.mode %q not in (zero_temp|always)", c.Cache.Mode)
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf("config: %d error(s):\n  - %s", len(errs), join(errs, "\n  - "))
 	}
@@ -394,5 +420,7 @@ func Watch(path string, interval time.Duration, onChange func(*Config, error)) f
 			}
 		}
 	}()
-	return func() { close(stop) }
+	// 幂等停止：main 里 defer 与显式调用会各触发一次，双重 close 会 panic
+	var once sync.Once
+	return func() { once.Do(func() { close(stop) }) }
 }

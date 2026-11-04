@@ -47,8 +47,9 @@ go run ./cmd/omni-route -config config.demo.yaml
 curl -sD - -o /dev/null http://localhost:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'x-or-task: extraction' \
-  -d '{"messages":[{"role":"user","content":"提取订单信息并返回 JSON：订单号 A-100，金额 99 元"}]}'
+  -d '{"temperature":0,"messages":[{"role":"user","content":"提取订单信息并返回 JSON：订单号 A-100，金额 99 元"}]}'
 # 观察响应头：x-or-route-reason / x-or-model / x-or-cost-usd / x-or-savings-usd
+# 再执行一次：x-or-cache: hit——同一回答、零成本、节省照常入账
 
 # 3. 流式（OpenAI 协议标准 SSE）
 curl -N http://localhost:8080/v1/chat/completions \
@@ -78,6 +79,20 @@ curl -sD - http://localhost:8081/v1/chat/completions -H 'Content-Type: applicati
 go run ./cmd/omni-bench -config config.demo.yaml -dataset data/bench_tasks.jsonl
 ```
 
+容器方式（mock 演示，状态存命名卷）：
+
+```bash
+docker compose up -d          # 本地构建；或拉取 ghcr.io/attnstack/omni-route:latest
+curl -s http://localhost:8080/healthz
+```
+
+或直接安装二进制（模块路径可 go install）：
+
+```bash
+go install github.com/attnstack/omni-route/cmd/omni-route@latest
+omni-route -config config.demo.yaml
+```
+
 ## ✨ 特性
 
 | 特性 | 说明 |
@@ -91,6 +106,8 @@ go run ./cmd/omni-bench -config config.demo.yaml -dataset data/bench_tasks.jsonl
 | 可靠性 | 每 provider 令牌桶限流（对齐 RPM 配额）、指数退避重试、滑动窗口熔断、跨模型 failover、客户端断连即停 |
 | 省钱仪表盘 | 内嵌单页（构建期 embed，无静态文件依赖）：累计节省主视觉、模型占比、升级率趋势、任务成本归因 |
 | 可复现基准 | omni-bench 四策略对比（premium/cheap/cascade/lagrangian），确定性 seed，CI 可跑 |
+| 响应缓存 | 确定性（temperature=0）非流式请求的精确匹配缓存；TTL + LRU，`x-or-cache` 头，命中零成本且节省入账；开启鉴权时按租户隔离 |
+| Prometheus 指标 | `/metrics` 文本格式——请求/令牌/成本/节省/缓存命中/升级计数——手写实现，零新增依赖 |
 
 ## 🏗 工作原理
 
@@ -267,6 +284,9 @@ bash scripts/sse_matrix.sh                    # 预期：ALL SSE MATRIX CHECKS P
 | `cascades.<task>` | — | 级联链（≤ max_upgrades+1 级） |
 | `cascade.confidence.threshold` | 0.6 | 初始置信度阈值（在线校准会漂移） |
 | `cascade.confidence.llm_judge` | 关 | judge 模型 + 采样率（异步，不阻塞请求） |
+| `cache.enabled` | `false` | 非流式请求的响应缓存；命中零成本 |
+| `cache.mode` | `zero_temp` | `zero_temp`（仅显式 temperature=0）或 `always` |
+| `cache.{ttl_seconds,max_entries}` | 3600/4096 | TTL 与 LRU 容量；配置 `api_keys` 后按租户隔离 |
 | `reliability.{retries,backoff_base_ms}` | 2/200 | 重试策略（仅幂等场景 + 首字节前） |
 | `reliability.breaker.*` | 300s/20/0.2/30s | 滑动窗口熔断 |
 | `timeouts.{connect,first_byte,total}_ms` | 5000/60000/300000 | 上游超时三件套 |
@@ -296,7 +316,7 @@ bash scripts/sse_matrix.sh                    # 预期：ALL SSE MATRIX CHECKS P
 5. **单进程状态**——质量/λ/熔断都在内存，快照落盘但多副本部署会各学各的。改进方向：状态外置（Redis）+ 定期对账。
 6. **Token 估算误差 ±20%**——provider 不报 usage 时按 CJK/拉丁启发式估算，已打 `estimated` 标注；成本敏感场景建议用 `stream_options.include_usage`（网关已自动补）。
 7. **mock 基准 ≠ 真实质量**——mock 成本对比是模拟结论；真实口径为本地 Ollama + 影子价格 + judge 评分（见 Benchmark 章节），真实云端 key 复测仍是 TODO。
-8. **无语义缓存**——相同请求直接命中可再省一层（方案里的“重做会加”，尚未实现）。
+8. **缓存仅精确匹配**——相同请求体才能命中，不做语义相似度（刻意取舍：语义缓存需要 embedding 依赖，且有"近似答案冒充原答案"的正确性风险）。零温门控保证语义诚实；接受复用语义的负载可用 `cache.mode: always`。
 9. **多模态不透传**——content 仅支持文本，图片/音频 content 数组会被降级。
 
 ## 🤝 Contributing

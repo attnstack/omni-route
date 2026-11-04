@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/attnstack/omni-route/internal/buildinfo"
+	"github.com/attnstack/omni-route/internal/metrics"
 	"github.com/attnstack/omni-route/internal/store"
 	"github.com/attnstack/omni-route/web"
 )
@@ -38,7 +40,12 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"store":        agg,
+		"store": agg,
+		"cache": map[string]any{
+			"hits":   metrics.Default.Get("omni_route_cache_hits_total", nil),
+			"misses": metrics.Default.Get("omni_route_cache_misses_total", nil),
+		},
+		"version":      buildinfo.Version,
 		"lambda":       lambdas,
 		"spend_window": spends,
 		"quality":      world.rt.State().QualityTable(),

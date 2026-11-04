@@ -100,6 +100,12 @@ cascade:
 
 reliability:
   retries: 2
+cache:
+  enabled: true
+  mode: zero_temp        # 只缓存显式 temperature=0 的请求
+  ttl_seconds: 3600
+  max_entries: 4096
+
   backoff_base_ms: 200
   breaker:
     window_sec: 300

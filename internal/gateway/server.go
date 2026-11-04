@@ -6,6 +6,7 @@ package gateway
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -14,9 +15,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/attnstack/omni-route/internal/buildinfo"
+	"github.com/attnstack/omni-route/internal/cache"
 	"github.com/attnstack/omni-route/internal/cascade"
 	"github.com/attnstack/omni-route/internal/config"
 	"github.com/attnstack/omni-route/internal/executor"
+	"github.com/attnstack/omni-route/internal/metrics"
 	"github.com/attnstack/omni-route/internal/provider"
 	"github.com/attnstack/omni-route/internal/router"
 	"github.com/attnstack/omni-route/internal/store"
@@ -34,10 +38,11 @@ type world struct {
 	checker *cascade.Checker
 	cal     *cascade.Calibrator
 	runner  *cascade.Runner
+	cache   *cache.Cache
 }
 
 // BuildWorld 按配置装配全部运行时依赖。state 与 store 跨热加载复用（学习成果不丢）。
-func BuildWorld(cfg *config.Config, client *http.Client, state *router.State, logger *slog.Logger) (*world, error) {
+func BuildWorld(cfg *config.Config, client *http.Client, state *router.State, respCache *cache.Cache, logger *slog.Logger) (*world, error) {
 	reg, err := provider.Build(cfg, client, logger)
 	if err != nil {
 		return nil, err
@@ -56,7 +61,10 @@ func BuildWorld(cfg *config.Config, client *http.Client, state *router.State, lo
 	// 否则升级率校准只更新数据、不影响决策，闭环是断的
 	checker.SetThresholdFunc(cal.Threshold)
 	runner := cascade.NewRunner(exec, checker, cal, cfg, logger)
-	return &world{cfg: cfg, reg: reg, exec: exec, rt: rt, checker: checker, cal: cal, runner: runner}, nil
+	if respCache != nil {
+		respCache.Configure(time.Duration(cfg.Cache.TTLSeconds)*time.Second, cfg.Cache.MaxEntries)
+	}
+	return &world{cfg: cfg, reg: reg, exec: exec, rt: rt, checker: checker, cal: cal, runner: runner, cache: respCache}, nil
 }
 
 // Server 是网关 HTTP 服务。
@@ -93,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/requests", s.handleRequests)
 	mux.HandleFunc("POST /admin/reload", s.handleReload)
+	mux.HandleFunc("GET /metrics", s.handleMetrics)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 
@@ -110,7 +119,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				got := trimBearer(r.Header.Get("Authorization"))
 				ok := false
 				for _, k := range keys {
-					if got == k {
+					// 常量时间比较：避免逐字节短路泄漏前缀匹配信息
+					if subtle.ConstantTimeCompare([]byte(got), []byte(k)) == 1 {
 						ok = true
 						break
 					}
@@ -120,6 +130,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 						"invalid or missing API key (configure api_keys in config)")
 					return
 				}
+				r = r.WithContext(context.WithValue(r.Context(), authKeyKey{}, got))
 			}
 		}
 		next.ServeHTTP(w, r)
@@ -160,6 +171,9 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 }
 
 type requestIDKey struct{}
+
+// authKeyKey 携带通过鉴权的 API key（缓存租户隔离用）。
+type authKeyKey struct{}
 
 func requestIDFrom(ctx context.Context) string {
 	if v, ok := ctx.Value(requestIDKey{}).(string); ok {
@@ -213,8 +227,15 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "ok",
 		"uptime":  time.Since(s.started).Round(time.Second).String(),
-		"version": "0.1.0",
+		"version": buildinfo.Version,
 	})
+}
+
+// handleMetrics 输出 Prometheus 文本格式。手写渲染，不引入 client_golang——
+// 网关"仅两个直接依赖"的卖点不因可观测性破例。
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	_, _ = w.Write([]byte(metrics.Default.Render()))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

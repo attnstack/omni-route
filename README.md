@@ -47,8 +47,9 @@ go run ./cmd/omni-route -config config.demo.yaml
 curl -sD - -o /dev/null http://localhost:8080/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -H 'x-or-task: extraction' \
-  -d '{"messages":[{"role":"user","content":"Extract the order info and return JSON: order A-100, 99 USD"}]}'
+  -d '{"temperature":0,"messages":[{"role":"user","content":"Extract the order info and return JSON: order A-100, 99 USD"}]}'
 # Look at: x-or-route-reason / x-or-model / x-or-cost-usd / x-or-savings-usd
+# Run it again: x-or-cache: hit — same answer, zero cost, savings still booked
 
 # 3. Streaming (standard OpenAI SSE)
 curl -N http://localhost:8080/v1/chat/completions \
@@ -76,6 +77,20 @@ Cost-strategy benchmark:
 go run ./cmd/omni-bench -config config.demo.yaml -dataset data/bench_tasks.jsonl
 ```
 
+Prefer containers? (mock provider demo, state persisted in a named volume)
+
+```bash
+docker compose up -d          # builds locally; or pull ghcr.io/attnstack/omni-route:latest
+curl -s http://localhost:8080/healthz
+```
+
+Or install the binary directly (module path is go-installable):
+
+```bash
+go install github.com/attnstack/omni-route/cmd/omni-route@latest
+omni-route -config config.demo.yaml
+```
+
 ## ✨ Features
 
 | Feature | Details |
@@ -89,6 +104,8 @@ go run ./cmd/omni-bench -config config.demo.yaml -dataset data/bench_tasks.jsonl
 | Reliability | Per-provider token buckets (matched to RPM quotas), retry with exponential backoff, sliding-window circuit breaker, cross-model failover, client disconnect propagates upstream |
 | Savings dashboard | Single embedded page (built into the binary, no static files): cumulative savings, model share, upgrade trend, per-task cost attribution |
 | Reproducible benchmarks | omni-bench compares 4 policies (premium/cheap/cascade/lagrangian) with a fixed seed; runs in CI |
+| Response cache | Exact-match cache for deterministic (temperature=0) non-streaming requests; TTL + LRU, `x-or-cache` header, hits cost nothing and book their avoided cost as savings; multi-tenant isolated when API keys are on |
+| Prometheus metrics | `/metrics` in text exposition format — requests, tokens, cost, savings, cache hit rate, upgrades — hand-rolled, zero new dependencies |
 
 ## 🏗 How it works
 
@@ -265,6 +282,9 @@ bash scripts/sse_matrix.sh                    # expect: ALL SSE MATRIX CHECKS PA
 | `cascades.<task>` | — | Cascade chain (≤ max_upgrades+1 tiers) |
 | `cascade.confidence.threshold` | 0.6 | Initial confidence threshold (drifts with online calibration) |
 | `cascade.confidence.llm_judge` | off | Judge model + sample rate (async, never blocks the request) |
+| `cache.enabled` | `false` | Response cache for non-streaming requests; hits cost nothing |
+| `cache.mode` | `zero_temp` | `zero_temp` (only explicit temperature=0) or `always` |
+| `cache.{ttl_seconds,max_entries}` | 3600/4096 | TTL and LRU capacity; per-tenant isolation when `api_keys` are configured |
 | `reliability.{retries,backoff_base_ms}` | 2/200 | Retry policy (idempotent setups only, before first byte) |
 | `reliability.breaker.*` | 300s/20/0.2/30s | Sliding-window circuit breaker |
 | `timeouts.{connect,first_byte,total}_ms` | 5000/60000/300000 | Upstream timeout trio |
@@ -294,7 +314,7 @@ A small set of gateway-specific endpoints beyond the OpenAI protocol:
 5. **Single-process state** — quality/λ/breakers live in memory; snapshots persist to disk, but replicas would each learn separately. Future work: external state (Redis) + reconciliation.
 6. **Token estimation ±20%** — when a provider doesn't report usage, the gateway estimates via a CJK/Latin heuristic and flags it `estimated`; for cost-critical setups use `stream_options.include_usage` (the gateway sets it automatically).
 7. **Mock benchmark ≠ real quality** — the mock cost comparison is a simulation; the real-data run is local Ollama + shadow prices + a judge metric (see Benchmark). Re-running with real cloud keys is still TODO.
-8. **No semantic cache** — exact-duplicate requests could be answered for free; not implemented yet.
+8. **Cache is exact-match only** — identical request bodies hit; there is no semantic-similarity matching (deliberate: it needs embeddings and risks serving a "close enough" answer). Zero-temperature gating keeps semantics honest; `cache.mode: always` exists for workloads that accept reuse.
 9. **No multimodal passthrough** — text content only; image/audio content arrays are degraded.
 
 ## 🤝 Contributing

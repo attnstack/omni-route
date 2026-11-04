@@ -62,6 +62,9 @@ type Request struct {
 	Temperature *float64
 	MaxTokens   int
 	Raw         map[string]any
+
+	// CacheKey 由网关在缓存判定后填入（无 json 标签，绝不透传给上游）。
+	CacheKey string
 }
 
 // Response 是统一后的完整回答。

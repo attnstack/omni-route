@@ -36,7 +36,7 @@
 </head>
 <body>
   <h1>omni-route 省钱仪表盘</h1>
-  <div class="sub">相对"永远用基线模型"的累计节省 · 每 2 秒自动刷新 · <span id="mode"></span></div>
+  <div class="sub">相对"永远用基线模型"的累计节省 · 每 2 秒自动刷新 · <span id="mode"></span> · <a href="/metrics" style="color:var(--blue)">/metrics</a></div>
 
   <div class="hero">
     <div class="label">累计节省（USD）</div>
@@ -50,6 +50,7 @@
     <div class="card"><div class="k">级联升级率</div><div class="v" id="upgrade">0%</div></div>
     <div class="card"><div class="k">平均延迟</div><div class="v" id="latency">0 ms</div></div>
     <div class="card"><div class="k">错误数</div><div class="v" id="errors">0</div></div>
+    <div class="card"><div class="k">缓存命中率</div><div class="v" id="cacheRate">—</div></div>
   </div>
 
   <div class="grid">
@@ -95,7 +96,9 @@ async function refresh() {
     $("upgrade").textContent = Math.round((t.upgrade_rate || 0) * 100) + "%";
     $("latency").textContent = Math.round(t.avg_latency_ms) + " ms";
     $("errors").textContent = t.errors;
-    $("mode").textContent = "routing.mode = " + esc(st.mode);
+    const cH = (st.cache && st.cache.hits) || 0, cM = (st.cache && st.cache.misses) || 0;
+    $("cacheRate").textContent = (cH + cM) > 0 ? Math.round(cH / (cH + cM) * 100) + "% (" + cH + "/" + (cH + cM) + ")" : "—";
+    $("mode").textContent = "routing.mode = " + esc(st.mode) + (st.version ? " · v" + esc(st.version) : "");
 
     const maxReq = Math.max(1, ...st.store.by_model.map(g => g.requests));
     $("byModel").tBodies[0].innerHTML = (st.store.by_model || []).map(g =>

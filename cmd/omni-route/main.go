@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/attnstack/omni-route/internal/buildinfo"
+	"github.com/attnstack/omni-route/internal/cache"
 	"github.com/attnstack/omni-route/internal/config"
 	"github.com/attnstack/omni-route/internal/gateway"
 	"github.com/attnstack/omni-route/internal/logging"
@@ -23,7 +25,12 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "配置文件路径（YAML）")
+	showVersion := flag.Bool("version", false, "打印版本号后退出")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(buildinfo.Version)
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -62,12 +69,15 @@ func main() {
 	}
 
 	state := router.NewState(cfg)
+	// 响应缓存跨热加载复用同一实例（重载只调 Configure，不丢已缓存内容）
+	respCache := cache.New(
+		time.Duration(cfg.Cache.TTLSeconds)*time.Second, cfg.Cache.MaxEntries)
 	statePath := cfg.Store.Path + ".state.json"
 	if err := state.Load(statePath); err != nil {
 		logger.Warn("router state load failed, starting fresh", "error", err.Error())
 	}
 
-	w, err := gateway.BuildWorld(cfg, client, state, logger)
+	w, err := gateway.BuildWorld(cfg, client, state, respCache, logger)
 	if err != nil {
 		logger.Error("build world failed", "error", err.Error())
 		os.Exit(1)
@@ -84,7 +94,7 @@ func main() {
 				return err
 			}
 		}
-		newW, err := gateway.BuildWorld(newCfg, client, state, logger)
+		newW, err := gateway.BuildWorld(newCfg, client, state, respCache, logger)
 		if err != nil {
 			return err
 		}

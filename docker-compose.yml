@@ -1,0 +1,15 @@
+services:
+  omni-route:
+    image: ghcr.io/attnstack/omni-route:latest
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - omni-data:/data
+      - ./config.docker.yaml:/etc/omni-route/config.yaml:ro
+    restart: unless-stopped
+    # 说明：运行时镜像是 distroless（无 shell/curl），无法容器内 HTTP 探活；
+    # 如需 healthcheck，建议在 compose 外用 `curl -f http://localhost:8080/healthz` 或反代层探活。
+
+volumes:
+  omni-data:

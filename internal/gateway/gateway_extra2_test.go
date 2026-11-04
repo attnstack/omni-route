@@ -56,7 +56,7 @@ func TestSwapWorldReplacesSnapshot(t *testing.T) {
 	old := s.current()
 	cfg2 := demoConfig()
 	cfg2.Listen = ":9"
-	w2, err := BuildWorld(cfg2, nil, newTestState(cfg2), quietLogger())
+	w2, err := BuildWorld(cfg2, nil, newTestState(cfg2), nil, quietLogger())
 	if err != nil {
 		t.Fatal(err)
 	}

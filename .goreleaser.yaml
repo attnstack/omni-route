@@ -1,0 +1,45 @@
+# GoReleaser v2：tag 推送时产出跨平台二进制与校验文件（镜像发布走独立 workflow）。
+version: 2
+
+project_name: omni-route
+
+builds:
+  - id: omni-route
+    main: ./cmd/omni-route
+    binary: omni-route
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/attnstack/omni-route/internal/buildinfo.Version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  draft: false

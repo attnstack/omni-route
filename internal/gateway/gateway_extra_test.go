@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/attnstack/omni-route/internal/cache"
 	"github.com/attnstack/omni-route/internal/config"
 	"github.com/attnstack/omni-route/internal/router"
 	"github.com/attnstack/omni-route/internal/store"
@@ -70,7 +71,8 @@ func newLocalServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	w, err := BuildWorld(cfg, nil, newTestState(cfg), logger)
+	cacheInst := cache.New(time.Duration(cfg.Cache.TTLSeconds)*time.Second, cfg.Cache.MaxEntries)
+	w, err := BuildWorld(cfg, nil, newTestState(cfg), cacheInst, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
