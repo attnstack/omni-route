@@ -10,9 +10,14 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath \
     -ldflags "-s -w -X github.com/attnstack/omni-route/internal/buildinfo.Version=${VERSION}" \
     -o /out/omni-route ./cmd/omni-route
+# /data 预建并以 nonroot(65532) 属主拷入运行时镜像：
+# 新建命名卷会继承镜像内该目录的属主，否则 fresh volume 归 root，
+# nonroot 进程写不了 SQLite（曾静默降级为内存库）
+RUN mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/omni-route /omni-route
+COPY --from=build --chown=65532:65532 /out/data /data
 # 数据目录：SQLite 日志与路由状态快照（compose/运行时挂卷持久化）
 VOLUME /data
 EXPOSE 8080

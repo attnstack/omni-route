@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versioning follows SemVer.
 
+## [v0.2.1] - 2026-11-05
+
+### Fixed
+- Docker image: the  volume is now pre-created with nonroot ownership.
+  Fresh named volumes inherit root ownership otherwise, so the nonroot
+  process could not write SQLite and the store silently fell back to
+  in-memory (persistence was lost on container restarts).
+
 ## [v0.2.0] - 2026-11-05
 
 ### Added
